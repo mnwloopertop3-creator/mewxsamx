@@ -1,16 +1,17 @@
-// api/prices.js (โค้ดที่ปรับให้ Vercel Node.js เข้าใจ)
+// api/prices.js (โค้ดสำหรับ Serverless Function บน Vercel)
 
-const fetch = require('node-fetch'); // Vercel supports fetch, but this is safer
+const fetch = require('node-fetch');
 
 // 1. กำหนด Item ID และ Locations ที่คุณต้องการ (T6-T8)
 const itemIds = [
     "T6_BAG", 
     "T7_BAG", 
     "T8_BAG", 
-    // ... ใส่ Item ID อาวุธ ชุดเกราะ T6-T8 ทั้งหมด
+    // คุณสามารถเพิ่ม Item ID อาวุธ ชุดเกราะ T6-T8 ทั้งหมดที่นี่
 ];
 
-const locations = [
+// แก้ไข Syntax Error: ใช้ [ ] แทน { }
+const locations = [ 
     "Black Market", 
     "Bridgewatch", 
     "Martlock", 
@@ -22,9 +23,9 @@ const locations = [
 
 const QUALITY = 1; // Normal Quality
 
-const FEE_RATE = 0.065; // 6.5%
+const FEE_RATE = 0.065; // 6.5% Black Market Fee
 
-module.exports = async (req, res) => { // เปลี่ยนการ export เป็น module.exports
+module.exports = async (req, res) => {
     try {
         // 2. สร้าง URL API
         const apiUrl = `https://west.albion-online-data.com/api/v2/stats/prices/${itemIds.join(',')}` +
@@ -35,32 +36,31 @@ module.exports = async (req, res) => { // เปลี่ยนการ export 
         const response = await fetch(apiUrl);
         const data = await response.json();
 
-        // 4. ประมวลผลและคำนวณกำไร (Logic เดิม)
+        // 4. ประมวลผลและคำนวณกำไร
         
         // ก. หาข้อมูล Black Market (BM) Sell Price Max (O)
         const bmData = data.filter(d => d.city === "Black Market");
         const bmMap = new Map();
         bmData.forEach(item => {
-            // เราใช้ buy_price_max (I) ของ BM เพื่อคำนวณราคาขาย (O)
+            // buy_price_max ของ BM คือราคาที่ BM ซื้อจากคุณ
             const sellPriceGross = item.buy_price_max / (1 - FEE_RATE);
             bmMap.set(item.item_id, sellPriceGross);
         });
 
         // ข. คำนวณกำไรสำหรับเมืองหลัก
         const results = data
-            .filter(d => d.city !== "Black Market" && d.sell_price_min > 0)
+            .filter(d => d.city !== "Black Market" && d.sell_price_min > 0) // กรองเหลือแต่เมืองหลักที่ราคามี Sell Order (M > 0)
             .map(cityItem => {
                 const itemId = cityItem.item_id;
-                const buyPrice = cityItem.sell_price_min; // ราคาซื้อ (M)
-                const sOrderPriceGross = bmMap.get(itemId) || 0; // ราคาตั้งขายที่ BM (T)
+                const buyPrice = cityItem.sell_price_min; 
+                const sOrderPriceGross = bmMap.get(itemId) || 0; 
 
-                // ถ้าไม่มีราคา BM หรือราคาซื้อแพงเกินไป ก็ข้าม
                 if (sOrderPriceGross === 0 || sOrderPriceGross <= buyPrice) {
                     return null;
                 }
 
-                const revenueAfterFee = sOrderPriceGross * (1 - FEE_RATE); // ราคาขายสุทธิ (Q)
-                const finalProfit = revenueAfterFee - buyPrice; // กำไรสุทธิ (P)
+                const revenueAfterFee = sOrderPriceGross * (1 - FEE_RATE);
+                const finalProfit = revenueAfterFee - buyPrice; 
 
                 return {
                     itemId: itemId,
@@ -71,13 +71,13 @@ module.exports = async (req, res) => { // เปลี่ยนการ export 
                     margin: ((finalProfit / buyPrice) * 100).toFixed(2) + '%'
                 };
             })
-            .filter(Boolean) // ลบแถวที่เป็น null ทิ้ง
+            .filter(Boolean) 
             .sort((a, b) => b.finalProfit - a.finalProfit); // เรียงกำไรมากไปน้อย
 
         // 5. ส่งผลลัพธ์กลับไปให้เบราว์เซอร์
-        res.setHeader('Content-Type', 'application/json'); // เพิ่ม Header ให้ถูกต้อง
+        res.setHeader('Content-Type', 'application/json'); 
         res.status(200).send(JSON.stringify(results));
     } catch (error) {
         res.status(500).send(JSON.stringify({ error: error.message }));
     }
-}
+};
